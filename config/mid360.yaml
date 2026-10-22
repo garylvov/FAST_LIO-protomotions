@@ -23,6 +23,12 @@
             timestamp_unit: 3
             scan_rate: 10
 
+        imu:
+            acc_clip_g: 4.0
+            acc_clip_margin_g: 0.05
+            acc_clip_cov: 2.05
+            acc_clip_decay_s: 0.1
+
         mapping:
             acc_cov: 0.1
             gyr_cov: 0.1
