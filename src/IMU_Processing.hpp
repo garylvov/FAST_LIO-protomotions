@@ -44,6 +44,8 @@ class ImuProcess
   void set_extrinsic(const MD(4,4) &T);
   void set_gyr_cov(const V3D &scaler);
   void set_acc_cov(const V3D &scaler);
+  void set_acc_clip(double range_g, double margin_g, double inflated_cov, double decay_s);
+  void mark_acc_clip(const sensor_msgs::msg::Imu::SharedPtr &msg, double stamp);
   void set_gyr_bias_cov(const V3D &b_g);
   void set_acc_bias_cov(const V3D &b_a);
   Eigen::Matrix<double, 12, 12> Q;
@@ -51,6 +53,12 @@ class ImuProcess
 
   ofstream fout_imu;
   V3D cov_acc;
+  double acc_clip_g = 0.0;
+  double acc_clip_margin_g = 0.05;
+  double acc_clip_cov = 2.05;
+  double acc_clip_decay_s = 0.1;
+  double acc_clip_last_stamp = -1e100;
+  unsigned long long inflated_imu_samples = 0;
   V3D cov_gyr;
   V3D cov_acc_scale;
   V3D cov_gyr_scale;
@@ -141,6 +149,39 @@ void ImuProcess::set_gyr_cov(const V3D &scaler)
 void ImuProcess::set_acc_cov(const V3D &scaler)
 {
   cov_acc_scale = scaler;
+}
+
+void ImuProcess::set_acc_clip(double range_g, double margin_g, double inflated_cov, double decay_s)
+{
+  if (range_g < 0 || margin_g < 0 || inflated_cov < 0 || decay_s < 0 ||
+      !std::isfinite(range_g) || !std::isfinite(margin_g) ||
+      !std::isfinite(inflated_cov) || !std::isfinite(decay_s) ||
+      (range_g > 0 && (margin_g >= range_g || cov_acc_scale[0] <= 0 || inflated_cov <= cov_acc_scale[0])))
+    throw std::invalid_argument("invalid IMU accelerometer clip covariance settings");
+  acc_clip_g = range_g;
+  acc_clip_margin_g = margin_g;
+  acc_clip_cov = inflated_cov;
+  acc_clip_decay_s = decay_s;
+}
+
+void ImuProcess::mark_acc_clip(const sensor_msgs::msg::Imu::SharedPtr &msg, double stamp)
+{
+  double factor = 1.0;
+  if (acc_clip_g > 0)
+  {
+    const auto &acc = msg->linear_acceleration;
+    if (std::abs(acc.x) >= acc_clip_g - acc_clip_margin_g ||
+        std::abs(acc.y) >= acc_clip_g - acc_clip_margin_g ||
+        std::abs(acc.z) >= acc_clip_g - acc_clip_margin_g)
+      acc_clip_last_stamp = stamp;
+    if (stamp >= acc_clip_last_stamp && stamp - acc_clip_last_stamp <= acc_clip_decay_s)
+    {
+      factor = acc_clip_cov / cov_acc_scale[0];
+      ++inflated_imu_samples;
+    }
+  }
+  // Internal metadata for the two endpoints of each prediction interval.
+  msg->linear_acceleration_covariance[0] = factor;
 }
 
 void ImuProcess::set_gyr_bias_cov(const V3D &b_g)
@@ -272,7 +313,7 @@ void ImuProcess::UndistortPcl(const MeasureGroup &meas, esekfom::esekf<state_ikf
     in.acc = acc_avr;
     in.gyro = angvel_avr;
     Q.block<3, 3>(0, 0).diagonal() = cov_gyr;
-    Q.block<3, 3>(3, 3).diagonal() = cov_acc;
+    Q.block<3, 3>(3, 3).diagonal() = cov_acc * std::max(head->linear_acceleration_covariance[0], tail->linear_acceleration_covariance[0]);
     Q.block<3, 3>(6, 6).diagonal() = cov_bias_gyr;
     Q.block<3, 3>(9, 9).diagonal() = cov_bias_acc;
     kf_state.predict(dt, Q, in);

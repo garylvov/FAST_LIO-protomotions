@@ -372,6 +372,7 @@ void imu_cbk(const sensor_msgs::msg::Imu::UniquePtr msg_in)
     }
 
     last_timestamp_imu = timestamp;
+    p_imu->mark_acc_clip(msg, timestamp);
 
     imu_buffer.push_back(msg);
     mtx_buffer.unlock();
@@ -818,6 +819,10 @@ public:
         this->declare_parameter<double>("mapping.fov_degree", 180.);
         this->declare_parameter<double>("mapping.gyr_cov", 0.1);
         this->declare_parameter<double>("mapping.acc_cov", 0.1);
+        this->declare_parameter<double>("imu.acc_clip_g", 0.0);
+        this->declare_parameter<double>("imu.acc_clip_margin_g", 0.05);
+        this->declare_parameter<double>("imu.acc_clip_cov", 2.05);
+        this->declare_parameter<double>("imu.acc_clip_decay_s", 0.1);
         this->declare_parameter<double>("mapping.b_gyr_cov", 0.0001);
         this->declare_parameter<double>("mapping.b_acc_cov", 0.0001);
         this->declare_parameter<double>("preprocess.blind", 0.01);
@@ -854,6 +859,11 @@ public:
         this->get_parameter_or<double>("mapping.fov_degree",fov_deg,180.f);
         this->get_parameter_or<double>("mapping.gyr_cov",gyr_cov,0.1);
         this->get_parameter_or<double>("mapping.acc_cov",acc_cov,0.1);
+        double acc_clip_g, acc_clip_margin_g, acc_clip_cov, acc_clip_decay_s;
+        this->get_parameter_or<double>("imu.acc_clip_g",acc_clip_g,0.0);
+        this->get_parameter_or<double>("imu.acc_clip_margin_g",acc_clip_margin_g,0.05);
+        this->get_parameter_or<double>("imu.acc_clip_cov",acc_clip_cov,2.05);
+        this->get_parameter_or<double>("imu.acc_clip_decay_s",acc_clip_decay_s,0.1);
         this->get_parameter_or<double>("mapping.b_gyr_cov",b_gyr_cov,0.0001);
         this->get_parameter_or<double>("mapping.b_acc_cov",b_acc_cov,0.0001);
         this->get_parameter_or<double>("preprocess.blind", p_pre->blind, 0.01);
@@ -897,6 +907,7 @@ public:
         p_imu->set_extrinsic(Lidar_T_wrt_IMU, Lidar_R_wrt_IMU);
         p_imu->set_gyr_cov(V3D(gyr_cov, gyr_cov, gyr_cov));
         p_imu->set_acc_cov(V3D(acc_cov, acc_cov, acc_cov));
+        p_imu->set_acc_clip(acc_clip_g, acc_clip_margin_g, acc_clip_cov, acc_clip_decay_s);
         p_imu->set_gyr_bias_cov(V3D(b_gyr_cov, b_gyr_cov, b_gyr_cov));
         p_imu->set_acc_bias_cov(V3D(b_acc_cov, b_acc_cov, b_acc_cov));
 
